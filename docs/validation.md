@@ -84,3 +84,21 @@ Simulation does not model analog metastability. PCLK must remain at or below
 stress qualification was performed. A stable wrong level across the entire
 sample window can be indistinguishable from valid camera data; the parallel
 camera bus has no source CRC. Do not claim unconditional absence of all glitches.
+
+## Reuse Build Check
+
+On 2026-09-09, the bootstrap script built fresh pinned tool sources in an
+isolated directory on the same ARM64 host. All four installed executables
+(`yosys`, `nextpnr-ice40`, `icepack`, `iceprog`) were native aarch64 binaries.
+This check used extracted matching Ubuntu dependencies through `DEPS_ROOT`.
+
+A clean local Git clone then passed a full `make all` and `make test` with
+that new toolchain, including the CXXRTL suites and all six Python tests.
+Final routed timing was 48.94 MHz at the required 48 MHz, and the generated
+bitstream was byte-identical to the bench bitstream recorded above.
+
+The bootstrap was also rerun inside the parent Git checkout, followed
+sequentially by a forced rebuild and the complete tests. Yosys retained its
+release-archive commit metadata, and the timing and bitstream hash matched.
+No RTL, host capture logic or wiring was changed for publication; these are
+build/regression checks, not a new physical camera test.

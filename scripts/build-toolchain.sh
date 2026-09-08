@@ -83,6 +83,9 @@ if [[ ! -d $build_root/src/yosys ]]; then
     tar -xzf "$archive" --no-same-owner -C "$unpack_dir"
     mv "$unpack_dir" "$build_root/src/yosys"
 fi
+(
+# Release archives must not inherit Git metadata from this project's checkout.
+export GIT_CEILING_DIRECTORIES="$(cd -- "$build_root/src" && pwd -P)"
 cmake -S "$build_root/src/yosys" -B "$build_root/yosys" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
     -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF \
@@ -94,6 +97,7 @@ cmake --build "$build_root/yosys" --target yosys yosys-abc -j"$jobs"
 # Install the selected tools/data without recursively installing unrelated targets.
 cmake -DCMAKE_INSTALL_LOCAL_ONLY=1 -DCMAKE_INSTALL_DO_STRIP=1 \
     -P "$build_root/yosys/cmake_install.cmake"
+)
 
 checkout_source https://github.com/YosysHQ/nextpnr.git "$build_root/src/nextpnr" "$nextpnr_commit"
 cmake -S "$build_root/src/nextpnr" -B "$build_root/nextpnr" -G Ninja \
