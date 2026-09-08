@@ -1,0 +1,19 @@
+# iCESugar v1.5 official schematic numbering, not generic PMOD numbering.
+set_io clk12       35
+set_io uart_rx      4
+set_io uart_tx      6
+set_io cam_d[0]    10
+set_io cam_d[1]    46
+set_io cam_d[2]     3
+set_io cam_d[3]    48
+set_io cam_pclk    34
+set_io cam_vsync   31
+set_io cam_href    27
+set_io cam_int     25
+set_io cam_xclk    23
+set_io cam_trig    26
+set_io cam_scl     28
+set_io cam_sda     32
+set_io led_r       40
+set_io led_g       41
+set_io led_b       39
