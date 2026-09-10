@@ -74,13 +74,15 @@ All these generated files are ignored by Git.
 Use an existing compatible installation without running the bootstrap script:
 
 ```sh
-make PREFIX=/absolute/path/to/toolchain all test
+make -B PREFIX=/absolute/path/to/toolchain all test
 ```
 
 `YOSYS`, `NEXTPNR`, `ICEPACK` and `CXXRTL_INCLUDE` can also be overridden on the
 make command line. The include path must match the CXXRTL version used to
 generate the simulation model. Stock Ubuntu FPGA packages are not the versions
 used to validate this project; the pinned source build is the supported route.
+`-B` forces rebuilding existing outputs when changing tool installations; Make
+does not otherwise track changes to tool paths or installed compiler binaries.
 
 For advanced non-root builds, `DEPS_ROOT` may point to a directory containing
 already extracted, matching Ubuntu ARM64 libftdi/libusb/Boost packages under

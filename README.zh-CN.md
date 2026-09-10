@@ -5,7 +5,7 @@
 在 **NVIDIA DGX Spark / Ubuntu 24.04 ARM64** 上完成综合、布局布线、烧录和图像接收。
 
 [English](README.md) · [接线表](docs/wiring.md) · [工具链安装](docs/toolchain.md) ·
-[验证记录](docs/validation.md) · [串口协议](docs/protocol.md)
+[故障排查](docs/troubleshooting.md) · [验证记录](docs/validation.md) · [串口协议](docs/protocol.md)
 
 ## 项目内容
 
@@ -60,6 +60,9 @@ python3 host/camera.py standby
 ```
 
 图片保存在 `outputs/时间戳/`。存在异常时保留 RAW/JSON、返回错误并停止，不静默丢帧或重试。
+无效帧不生成 PNG/PGM。已有帧文件拒绝覆盖；显式 `--output` 必须指定新目录，打开串口前即检查。
+每次连接先排空旧数据并完成状态握手，避免把上次中断的采集响应误认为新帧；恢复最多等待 18 秒。
+只重试启动时的只读状态查询，不重试摄像头配置写入或采集请求。
 有多个串口时，用 `python3 host/camera.py --port /dev/ttyACM0 status` 显式指定。
 请通过系统串口权限机制获得访问权限，不要用 `sudo` 采图或将设备改成全员可写。
 

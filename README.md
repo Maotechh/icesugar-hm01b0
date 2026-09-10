@@ -6,8 +6,9 @@ with synthesis, place-and-route and programming performed directly on an
 **NVIDIA DGX Spark (Ubuntu 24.04, ARM64)**.
 
 [中文说明](README.zh-CN.md) | [Wiring](docs/wiring.md) |
-[Toolchain](docs/toolchain.md) | [Validation](docs/validation.md) |
-[Protocol](docs/protocol.md)
+[Toolchain](docs/toolchain.md) | [Troubleshooting](docs/troubleshooting.md) |
+[Validation](docs/validation.md) |
+[Protocol](docs/protocol.md) | [Changelog](CHANGELOG.md)
 
 ```text
 HM01B0 four-bit pixels -> FPGA frame capture -> 128 KiB SPRAM
@@ -35,8 +36,9 @@ The module has its own 24 MHz oscillator: **the FPGA must not drive XCLK**.
 Use 3.3 V for module VCC, not a GPIO. The module's I2C pull-ups are to 2.8 V;
 the FPGA uses open-drain outputs without additional 3.3 V pull-ups.
 
-Camera **D1 goes to P2_1 / FPGA pin 46**, leaving UART pin 4 free. Both board
-UART jumpers must be fitted. Flashing uses built-in **iCELink**, not FTDI iceprog.
+Camera **D1 goes to P2_1 / FPGA pin 46**; this leaves the iCELink UART pins
+4 and 6 available. Both board UART jumpers must be fitted. Flashing uses
+built-in **iCELink**, not FTDI iceprog.
 
 ## Quick Start
 
@@ -96,11 +98,20 @@ explicitly, put `--port /dev/ttyACM0` **before** the subcommand. The user must
 have read/write access to the port; use your distribution's serial-device group
 policy, not `sudo` for image capture or world-writable device permissions.
 
-Results go to a timestamped directory under `outputs/`. Failed frames retain
-RAW and JSON evidence, produce a nonzero exit status and stop the run. No
-requested frame is silently skipped or retried. `standby` stops sensor streaming
-and releases FPGA control; `disable` alone only releases control. Neither stops
-the module's onboard oscillator while powered.
+Results go to a new timestamped directory under `outputs/`. Failed frames retain
+RAW and JSON evidence, produce a nonzero exit status and stop the run; invalid
+frames never produce PNG/PGM files. Existing frame files are refused rather than
+overwritten. An explicit `--output` must name a new directory; it is checked
+before the serial port is opened. No requested frame is silently skipped or
+retried. `standby` stops sensor streaming and releases FPGA control; `disable`
+alone only releases control. Neither stops the module's onboard oscillator
+while powered.
+
+Each connection drains old traffic and completes a checked status handshake
+before running the requested command. Recovery after an interrupted capture
+can take up to 18 seconds. Only this read-only status handshake is retried;
+configuration writes and capture requests are not. See
+[troubleshooting](docs/troubleshooting.md) for common failure modes.
 
 ## Validation And Limitations
 

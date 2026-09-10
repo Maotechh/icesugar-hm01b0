@@ -4,6 +4,12 @@
 request at a time and wait for its complete response. The host uses sequence
 numbers and checks every response header, size, status and checksum.
 
+On opening a port, the host drains old bytes and performs a bounded status-only
+handshake before any user operation. A busy FPGA may drop that status request;
+the host drains the previous response and retries status within 18 seconds.
+Once synchronized, configuration and capture commands are never retried
+automatically. Random initial sequence numbers alone are not synchronization.
+
 ## Request
 
 Nine bytes, with multi-byte request fields in **big-endian** order:

@@ -1,0 +1,20 @@
+name: Host Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Python standard-library and serial recovery tests
+        run: make test-host
+      - name: Bootstrap shell syntax
+        run: bash -n scripts/build-toolchain.sh

@@ -102,3 +102,18 @@ sequentially by a forced rebuild and the complete tests. Yosys retained its
 release-archive commit metadata, and the timing and bitstream hash matched.
 No RTL, host capture logic or wiring was changed for publication; these are
 build/regression checks, not a new physical camera test.
+
+## Host Reliability Check
+
+On 2026-09-11, `make -B all test` rebuilt the FPGA and passed all suites; the
+bitstream SHA256 and final 48.94 MHz timing matched the bench version above.
+The subsequent expanded host suite passed all 14 tests. New cases cover delayed
+response rejection, non-overwriting frame output, invalid-frame evidence, and
+orphan-image collisions. A pseudo-terminal test simulates a busy FPGA dropping the first
+status request while returning an old capture, then verifies a successful
+status handshake before accepting the next capture response. Additional tests
+cover a partial old response and the bounded synchronization deadline.
+
+These checks exercise the actual host serial code without a physical camera.
+No new photographs or hardware measurements were taken, and the RTL and
+bitstream are unchanged. Analog timing limitations above still apply.

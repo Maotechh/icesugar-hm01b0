@@ -1,10 +1,13 @@
 import binascii
+import os
+from pathlib import Path
 import struct
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 import zlib
-from host.camera import (Camera, CameraError, decode_response, gray_png, parse_frame, request_packet,
-                         walking_errors)
+from host.camera import (Camera, CameraError, decode_response, gray_png, main, parse_frame, request_packet,
+                         save_frame, walking_errors)
 
 
 class ProtocolTests(unittest.TestCase):
@@ -80,6 +83,33 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(CameraError):
             decode_response(p[:-1], 2, 4)
 
+    def test_command_discards_delayed_response(self):
+        def response(seq, payload):
+            header = b"HC" + bytes((0, seq, 0)) + struct.pack("<I", len(payload))
+            packet = header + payload
+            return packet + struct.pack("<I", zlib.crc32(packet))
+
+        camera = Camera.__new__(Camera)
+        peer, camera.fd = os.pipe()
+        camera.seq = 16
+        stale = response(99, b"old")
+        current = response(16, b"new")
+        camera.stream = stale + current
+
+        def read_exact(size, deadline):
+            del deadline
+            result, camera.stream = camera.stream[:size], camera.stream[size:]
+            self.assertEqual(len(result), size)
+            return result
+
+        camera.read_exact = read_exact
+        try:
+            self.assertEqual(camera.command(0), b"new")
+            self.assertEqual(camera.seq, 17)
+        finally:
+            os.close(camera.fd)
+            os.close(peer)
+
     def test_frame(self):
         raw = bytes(324 * 244)
         header = struct.pack("<IHHHBBI", len(raw), 244, 648, 648, 0, 0, 123)
@@ -111,6 +141,39 @@ class ProtocolTests(unittest.TestCase):
             chunks[kind] = body
             index += 12 + size
         self.assertEqual(zlib.decompress(chunks[b"IDAT"]), b"\x00\x00\x01\x02\x00\x03\x04\x05")
+
+    def test_frame_output_refuses_collisions(self):
+        raw = bytes(324 * 244)
+        with TemporaryDirectory() as directory:
+            save_frame(directory, 0, raw, {"valid": True})
+            self.assertTrue((Path(directory) / "frame-0000.png").exists())
+            self.assertTrue((Path(directory) / "frame-0000.pgm").exists())
+            with self.assertRaises(FileExistsError):
+                save_frame(directory, 0, b"invalid", {"valid": False})
+            self.assertEqual((Path(directory) / "frame-0000.raw").read_bytes(), raw)
+
+    def test_invalid_frame_has_only_evidence(self):
+        with TemporaryDirectory() as directory:
+            save_frame(directory, 0, b"invalid", {"valid": False})
+            self.assertEqual(sorted(p.suffix for p in Path(directory).iterdir()),
+                             [".json", ".raw"])
+
+    def test_orphan_image_blocks_frame_write(self):
+        with TemporaryDirectory() as directory:
+            previous = Path(directory) / "frame-0000.png"
+            previous.write_bytes(b"previous image")
+            with self.assertRaises(FileExistsError):
+                save_frame(directory, 0, b"invalid", {"valid": False})
+            self.assertEqual(previous.read_bytes(), b"previous image")
+            self.assertFalse((Path(directory) / "frame-0000.raw").exists())
+
+    def test_existing_output_rejected_before_opening_serial(self):
+        with TemporaryDirectory() as directory:
+            with patch("sys.argv", ["camera.py", "capture", "--output", directory]):
+                with patch("host.camera.Camera") as camera:
+                    with self.assertRaises(FileExistsError):
+                        main()
+                    camera.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 """HM01B0 acquisition via the iCESugar FPGA. Python standard library only."""
 import argparse
 import binascii
+from datetime import datetime
 import fcntl
 import glob
 import hashlib
@@ -9,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import select
+import secrets
 import struct
 import sys
 import termios
@@ -74,7 +76,9 @@ class Camera:
             if len(ports) != 1:
                 raise CameraError("Need exactly one iCELink serial device, or use --port")
             port = ports[0]
-        self.port, self.seq = port, 0
+        # The status handshake below, not randomness alone, establishes an
+        # idle connection after an interrupted capture.
+        self.port, self.seq = port, secrets.randbits(8)
         self.fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
         try:
             fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -86,9 +90,38 @@ class Camera:
             settings[6][termios.VTIME] = 0
             termios.tcsetattr(self.fd, termios.TCSANOW, settings)
             termios.tcflush(self.fd, termios.TCIFLUSH)
+            self.synchronize()
         except BaseException:
+            if hasattr(self, "previous"):
+                try:
+                    termios.tcsetattr(self.fd, termios.TCSANOW, self.previous)
+                except (OSError, termios.error):
+                    pass
             os.close(self.fd)
             raise
+
+    def synchronize(self):
+        # A capture can take two seconds plus a full UART buffer transfer.
+        # Only status is retried here; image/configuration commands never are.
+        deadline = time.monotonic() + 18
+        while time.monotonic() < deadline:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise CameraError("Serial synchronization timeout; reconnect iCELink")
+                if not select.select([self.fd], [], [], min(0.1, remaining))[0]:
+                    break
+                try:
+                    if not os.read(self.fd, 4096):
+                        raise CameraError("Serial device disconnected")
+                except BlockingIOError:
+                    continue
+            try:
+                self.status(timeout=min(3, max(0, deadline - time.monotonic())))
+                return
+            except CameraError:
+                continue
+        raise CameraError("Serial synchronization timeout; check FPGA programming and UART jumpers")
 
     def close(self):
         try:
@@ -124,16 +157,23 @@ class Camera:
                 packet = packet[os.write(self.fd, packet):]
             except BlockingIOError:
                 pass
-        header = self.read_exact(9, deadline)
-        if header[:4] != bytes((0x48, 0x43, op, seq)):
-            raise CameraError(f"Unexpected response header: {header.hex()}")
-        length = struct.unpack_from("<I", header, 5)[0]
-        if length > MAX_PAYLOAD:
-            raise CameraError(f"Oversized response: {length}")
-        return decode_response(header + self.read_exact(length + 4, deadline), op, seq)
+        while True:
+            header = self.read_exact(9, deadline)
+            if header[:2] != b"HC":
+                raise CameraError(f"Unexpected response header: {header.hex()}")
+            length = struct.unpack_from("<I", header, 5)[0]
+            if length > MAX_PAYLOAD:
+                raise CameraError(f"Oversized response: {length}")
+            response = header + self.read_exact(length + 4, deadline)
+            payload = decode_response(response, header[2], header[3])
+            if header[:4] != bytes((0x48, 0x43, op, seq)):
+                # A previous capture can finish after the host has reopened
+                # the port. Discard that complete frame and await our reply.
+                continue
+            return payload
 
-    def status(self):
-        p = self.command(0)
+    def status(self, timeout=3):
+        p = self.command(0, timeout=timeout)
         if len(p) != 16 or p[0] != 1:
             raise CameraError("Unsupported FPGA protocol")
         crc, uart, busy = struct.unpack_from("<HHH", p, 4)
@@ -238,12 +278,19 @@ def save_frame(directory, number, raw, metadata):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     base = directory / f"frame-{number:04d}"
-    base.with_suffix(".raw").write_bytes(raw)
-    base.with_suffix(".json").write_text(json.dumps(metadata, indent=2) + "\n")
+    for suffix in (".raw", ".json", ".pgm", ".png"):
+        if os.path.lexists(base.with_suffix(suffix)):
+            raise FileExistsError(f"Refusing to overwrite existing frame: {base}")
+    with base.with_suffix(".raw").open("xb") as stream:
+        stream.write(raw)
+    with base.with_suffix(".json").open("x") as stream:
+        stream.write(json.dumps(metadata, indent=2) + "\n")
     if metadata["valid"]:
         cropped = b"".join(raw[y * WIDTH + 2:y * WIDTH + 322] for y in range(2, 242))
-        base.with_suffix(".pgm").write_bytes(b"P5\n320 240\n255\n" + cropped)
-        base.with_suffix(".png").write_bytes(gray_png(cropped, 320, 240))
+        with base.with_suffix(".pgm").open("xb") as stream:
+            stream.write(b"P5\n320 240\n255\n" + cropped)
+        with base.with_suffix(".png").open("xb") as stream:
+            stream.write(gray_png(cropped, 320, 240))
 
 
 def gray_png(pixels, width, height):
@@ -271,8 +318,12 @@ def main():
     capture.add_argument("--mode", type=int, choices=range(4), default=0)
     capture.add_argument("--count", type=int, default=1)
     capture.add_argument("--walking", action="store_true")
-    capture.add_argument("--output", default="outputs/" + time.strftime("%Y%m%d-%H%M%S"))
+    capture.add_argument("--output", default="outputs/" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
     args = parser.parse_args()
+    if args.command == "capture":
+        if args.count < 1:
+            parser.error("Frame count must be positive")
+        Path(args.output).mkdir(parents=True, exist_ok=False)
     camera = Camera(args.port)
     try:
         if args.command == "status":
@@ -292,8 +343,6 @@ def main():
         elif args.command == "configure":
             print(json.dumps(camera.configure(args.pattern, args.polarity), indent=2))
         elif args.command == "capture":
-            if args.count < 1:
-                raise CameraError("Frame count must be positive")
             for i in range(args.count):
                 raw, meta = camera.capture(args.mode)
                 if args.walking:

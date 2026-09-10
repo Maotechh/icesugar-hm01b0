@@ -19,5 +19,10 @@ Keep this project minimal: no IDE, GUI, Python HDL, formal tool installation
 or SoC framework. Host code uses Python's standard library; simulation uses
 Yosys CXXRTL and a C++ compiler.
 
+GitHub's Host Tests workflow runs the standard-library tests (including a
+pseudo-terminal serial test) and shell syntax checks. It does not synthesize
+the FPGA, check routed timing or replace hardware tests. Run `make -B all test`
+locally after toolchain changes, and include the final timing result in the PR.
+
 Contributions are submitted under the MIT license. Preserve notices for
 third-party adaptations, including the OpenMV camera register values.
