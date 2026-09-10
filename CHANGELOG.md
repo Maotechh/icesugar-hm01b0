@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 - 2026-09-11
 
 - Synchronize each serial connection with a bounded, read-only status handshake
   before configuration or capture; validate and discard delayed responses.
